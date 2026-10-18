@@ -1,4 +1,5 @@
 import os
+import pytest
 from agent_pipeline.session_state import SessionState
 from agent_pipeline.workspace_loader import load_workspace_tools
 from tools_data import make_tools
@@ -78,3 +79,28 @@ def test_list_files_tool_empty_directory(tmp_path):
     res = list_files_tool.invoke({"directory": empty_dir})
     assert "error" in res
     assert "No files or folders found" in res["error"]
+
+
+def test_check_missing_tool():
+    # Create session and load sample fixture dataset
+    session = SessionState()
+    premade_tools, _ = load_workspace_tools("premade_tools", session)
+    load_dataset_tool = next(t for t in premade_tools if t.name == "load_dataset_tool")
+
+    load_dataset_tool.invoke({
+        "file_path": "agent_dev/sample_fixture.csv",
+        "text_column": "text",
+        "label_column": "label"
+    })
+
+    # Instantiate check_missing_tool from tools_data
+    tools = make_tools(session)
+    check_missing_tool = next(t for t in tools if t.name == "check_missing_tool")
+
+    # Run check_missing_tool
+    result = check_missing_tool.invoke({})
+
+    # Assert against known answer #2 in TEST_FIXTURE.md
+    assert result["status"] == "success"
+    assert result["n_missing"] == 1
+    assert result["missing_indices"] == [7]
