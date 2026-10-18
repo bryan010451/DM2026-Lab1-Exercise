@@ -1,5 +1,6 @@
 import re
-from typing import Dict, Any
+import os
+from typing import Dict, Any, Optional
 from langchain_core.tools import tool
 
 
@@ -52,4 +53,45 @@ def make_tools(session):
         session.store_result("tokenize_tool", {}, summary)
         return summary
 
-    return [tokenize_tool]
+    @tool
+    def list_files_tool(directory: str = ".") -> Dict[str, Any]:
+        """List files and directories within a target directory in the repository.
+
+        Enables exploring available datasets and pipeline files before loading.
+        Checks if the specified directory exists and whether it contains any files or folders.
+        Returns an error response if the directory does not exist or if no files/folders are found.
+
+        Args:
+            directory: Directory path to inspect (defaults to current directory '.').
+
+        Returns:
+            Dict containing status, directory path, list of entries, total count,
+            and assigned result_id, or an error dict if empty/invalid.
+        """
+        if not os.path.exists(directory):
+            return {"error": f"Directory '{directory}' does not exist."}
+
+        if not os.path.isdir(directory):
+            return {"error": f"Path '{directory}' is not a directory."}
+
+        try:
+            entries = os.listdir(directory)
+        except Exception as e:
+            return {"error": f"Failed to list directory '{directory}': {str(e)}"}
+
+        if not entries:
+            return {"error": f"No files or folders found in directory '{directory}'."}
+
+        result_id = session.next_result_id("list_files")
+        summary = {
+            "result_id": result_id,
+            "status": "success",
+            "directory": directory,
+            "entries": sorted(entries),
+            "total_entries": len(entries),
+        }
+
+        session.store_result("list_files_tool", {"directory": directory}, summary)
+        return summary
+
+    return [tokenize_tool, list_files_tool]
