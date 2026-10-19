@@ -104,3 +104,38 @@ def test_check_missing_tool():
     assert result["status"] == "success"
     assert result["n_missing"] == 1
     assert result["missing_indices"] == [7]
+
+
+def test_check_duplicates_tool():
+    # Single session reused across setup and test
+    session = SessionState()
+
+    # Load premade load_dataset_tool
+    premade_tools, _ = load_workspace_tools("premade_tools", session)
+    load_dataset_tool = next(t for t in premade_tools if t.name == "load_dataset_tool")
+
+    # Load data tools under test
+    tools = make_tools(session)
+    check_duplicates_tool = next(t for t in tools if t.name == "check_duplicates_tool")
+
+    # 1. Load sample fixture dataset
+    load_res = load_dataset_tool.invoke({
+        "file_path": "agent_dev/sample_fixture.csv",
+        "text_column": "text",
+        "label_column": "label"
+    })
+    assert load_res["n_documents"] == 8
+
+    # 2. Check duplicates without dropping (Known Answer #3: exactly 1 duplicate row pair, 2 indices)
+    res_check = check_duplicates_tool.invoke({"drop": False})
+    assert res_check["status"] == "success"
+    assert res_check["n_duplicates"] == 2
+    assert res_check["dropped"] is False
+    assert len(session.dataframe) == 8
+
+    # 3. Drop duplicates with keep=False (Known Answer #3: both copies dropped, leaving 6 rows)
+    res_drop = check_duplicates_tool.invoke({"drop": True})
+    assert res_drop["status"] == "success"
+    assert res_drop["dropped"] is True
+    assert res_drop["n_remaining"] == 6
+    assert len(session.dataframe) == 6

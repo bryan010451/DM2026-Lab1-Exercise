@@ -1,6 +1,6 @@
 import re
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import pandas as pd
 from langchain_core.tools import tool
 
@@ -167,4 +167,58 @@ def make_tools(session):
         session.store_result("check_missing_tool", {}, summary)
         return summary
 
-    return [tokenize_tool, list_files_tool, count_rows_tool, check_missing_tool]
+    @tool
+    def check_duplicates_tool(subset: Optional[List[str]] = None, drop: bool = False) -> Dict[str, Any]:
+        """Check for duplicate rows in session.dataframe and optionally drop all copies.
+
+        Identifies repeated records in the dataset. When drop=True, removes ALL copies
+        of any duplicated document using keep=False (matching Master's drop_duplicates(keep=False) exact strategy).
+
+        Args:
+            subset: List of column names to evaluate for duplicates (defaults to ["text"] if present, else all columns).
+            drop: If True, drops all copies of duplicated rows from session.dataframe.
+
+        Returns:
+            Dict containing status, n_duplicates, duplicate_indices, dropped status, n_remaining, and result_id.
+        """
+        if session.dataframe is None:
+            return {"error": "No dataset loaded in session. Call load_dataset_tool first."}
+
+        df = session.dataframe
+
+        if subset is None and "text" in df.columns:
+            cols_to_check = ["text"]
+        elif subset is not None:
+            cols_to_check = subset
+        else:
+            cols_to_check = None
+
+        # Identify duplicate rows (keep=False marks ALL occurrences as duplicates)
+        dup_mask = df.duplicated(subset=cols_to_check, keep=False)
+        dup_indices = df.index[dup_mask].tolist()
+        n_duplicates = len(dup_indices)
+
+        dropped = False
+        if drop and n_duplicates > 0:
+            df_cleaned = df.drop_duplicates(subset=cols_to_check, keep=False).reset_index(drop=True)
+            session.dataframe = df_cleaned
+            dropped = True
+
+            # Keep labels in sync if category_name column exists
+            if "category_name" in df_cleaned.columns:
+                session.set_labels(df_cleaned["category_name"].tolist())
+
+        result_id = session.next_result_id("check_duplicates")
+        summary = {
+            "result_id": result_id,
+            "status": "success",
+            "n_duplicates": n_duplicates,
+            "duplicate_indices": dup_indices,
+            "dropped": dropped,
+            "n_remaining": len(session.dataframe),
+        }
+
+        session.store_result("check_duplicates_tool", {"subset": subset, "drop": drop}, summary)
+        return summary
+
+    return [tokenize_tool, list_files_tool, count_rows_tool, check_missing_tool, check_duplicates_tool]
